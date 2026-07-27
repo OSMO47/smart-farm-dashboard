@@ -15,6 +15,7 @@ from amqtt.mqtt.constants import QOS_0
 from shared import topics
 
 from . import state as state_module
+from . import supabase_client
 
 logger = logging.getLogger("mqtt_bridge")
 
@@ -46,6 +47,7 @@ class MqttBridge:
         self.simulator_status: dict[str, Any] | None = None
         self._pending: dict[str, asyncio.Future[dict[str, Any]]] = {}
         self._receive_task: asyncio.Task[Any] | None = None
+        self._background_tasks: set[asyncio.Task[Any]] = set()
 
     async def connect(self) -> None:
         # auto_reconnect + reconnect_retries=-1 retries indefinitely with backoff if the broker
@@ -94,10 +96,25 @@ class MqttBridge:
             self.simulator_config = payload
         elif topic == topics.SIM_STATUS:
             self.simulator_status = payload
+            # lastTick is None on the one-time connect snapshot — only persist real ticks.
+            if payload.get("running") and payload.get("lastTick") is not None:
+                state = state_module.state
+                self._fire_and_forget(
+                    supabase_client.insert_reading(
+                        state["temperature"], state["humidity"], state["soilMoisture"], state["timestamp"]
+                    )
+                )
         else:
             return
 
         self._resolve_pending(payload)
+
+    def _fire_and_forget(self, coro: Any) -> None:
+        """Schedule a background coroutine and keep a reference so asyncio doesn't garbage-collect
+        the task mid-flight (a well-known footgun with bare `asyncio.create_task` calls)."""
+        task = asyncio.create_task(coro)
+        self._background_tasks.add(task)
+        task.add_done_callback(self._background_tasks.discard)
 
     def _resolve_pending(self, payload: dict[str, Any]) -> None:
         request_id = payload.get("requestId")

@@ -1,14 +1,26 @@
-# Smart Farm Dashboard — Phase 3
+# Smart Farm Dashboard — Phase 4
 
 แดชบอร์ดควบคุมโรงเรือนสตรอว์เบอร์รี่ขนาดทดลอง 1 โซน (8 แปลงปลูก) เปิดได้ทั้งจากคอมพิวเตอร์และมือถือ
 
-นี่คือ **Phase 3 จาก 6 phase** ใน roadmap ของโปรเจค Smart Farm — ข้อมูลเซนเซอร์จำลองย้ายไปวิ่งผ่าน **MQTT** แล้ว: กระบวนการ simulator แยกต่างหาก publish ค่าเซนเซอร์ปลอมไปที่ MQTT broker เหมือนที่ฮาร์ดแวร์จริงจะทำในอนาคต ส่วน backend (FastAPI) ทำหน้าที่ subscribe แล้วเสิร์ฟผ่าน REST endpoint เดิมให้ frontend เหมือน Phase 2 ทุกประการ — ยังไม่มี Raspberry Pi หรือฮาร์ดแวร์จริง ทุกอย่างรันบนคอมพัฒนาได้
+นี่คือ **Phase 4 จาก 6 phase** ใน roadmap ของโปรเจค Smart Farm — ค่าเซนเซอร์เชื่อมกับ **MQTT** จริงตั้งแต่ Phase 3 (simulator แยก process publish เหมือนฮาร์ดแวร์จริงจะทำในอนาคต, backend subscribe แล้วเสิร์ฟผ่าน REST) และตอนนี้เพิ่ม **Supabase (Postgres)** เข้ามาเก็บประวัติค่าเซนเซอร์จริง ทำให้กราฟแนวโน้มไม่หายตอน refresh หน้าเว็บอีกต่อไป — ยังไม่มี Raspberry Pi หรือฮาร์ดแวร์จริง ทุกอย่างรันบนคอมพัฒนาได้
 
-เพิ่มหน้าใหม่ **"จำลองข้อมูล · Simulator"** ให้สั่งหยุด/เริ่มการจำลอง และปรับช่วงค่าสุ่ม (อุณหภูมิ/ความชื้นอากาศ/ความชื้นดิน) ได้แบบ real-time โดยไม่ต้องแก้โค้ด — มีปุ่มลัด "ทดสอบราสีเทา" บังคับความชื้นอากาศให้อยู่ 88–95% ทันทีเพื่อทดสอบระบบแจ้งเตือนโดยไม่ต้องรอสุ่ม
+มีหน้า **"จำลองข้อมูล · Simulator"** (จาก Phase 3) ให้สั่งหยุด/เริ่มการจำลอง และปรับช่วงค่าสุ่ม (อุณหภูมิ/ความชื้นอากาศ/ความชื้นดิน) ได้แบบ real-time โดยไม่ต้องแก้โค้ด — มีปุ่มลัด "ทดสอบราสีเทา" บังคับความชื้นอากาศให้อยู่ 88–95% ทันทีเพื่อทดสอบระบบแจ้งเตือนโดยไม่ต้องรอสุ่ม
 
 ## วิธีรัน
 
 ต้องรัน **4 processes** พร้อมกัน (คนละ terminal) ทั้งหมดใช้ venv เดียวกันใน `backend/`:
+
+**0) ตั้งค่า Supabase (ทำครั้งเดียว)**
+
+1. เปิด Supabase Dashboard → SQL Editor → รันไฟล์ `backend/supabase/schema.sql`
+2. สร้าง `backend/.env` (ดูตัวอย่างใน `backend/.env.example`) ใส่:
+   ```
+   SUPABASE_URL=https://xxxx.supabase.co
+   SUPABASE_SECRET_KEY=sb_secret_xxxxxxxxxxxx
+   ```
+   ใช้ **secret key** (ไม่ใช่ publishable/anon key) เพราะ backend เขียนข้อมูลเองฝั่ง server ไม่ผ่าน RLS ของผู้ใช้ — ไฟล์นี้อยู่ใน `.gitignore` แล้ว ไม่ถูก commit
+
+ถ้าไม่ตั้งค่า Supabase ระบบยังใช้งานได้ปกติทุกอย่าง แค่ endpoint ประวัติข้อมูล (`/api/zone1/history`) จะตอบ error และกราฟ sparkline จะเริ่มจากค่าว่างทุกครั้งที่ refresh (เหมือน Phase 3)
 
 **1) MQTT Broker**
 
@@ -99,6 +111,8 @@ farm/system/alert
 ```
 backend/
   requirements.txt
+  .env                      SUPABASE_URL, SUPABASE_SECRET_KEY (ไม่ commit — ดู .env.example)
+  supabase/schema.sql        SQL สร้างตาราง sensor_readings — รันครั้งเดียวใน Supabase SQL Editor
   shared/topics.py           topic constants + payload helpers ใช้ร่วมกันทั้ง broker/simulator/app
   broker/
     broker_config.yaml       config ของ amqtt broker (listener 0.0.0.0:1883, allow-anonymous)
@@ -110,16 +124,19 @@ backend/
   app/
     state.py                 cache สถานะล่าสุดในหน่วยความจำ (ไม่สุ่มเองแล้ว) + setter ให้ bridge เรียก
     mqtt_bridge.py            MQTT client ฝั่ง backend + publish_and_await() สำหรับ endpoint แบบ sync
+                               + persist ค่าเซนเซอร์ลง Supabase ทุก tick (ดู sim/status handler)
+    supabase_client.py        httpx wrapper เรียก Supabase PostgREST: insert_reading(), fetch_history()
     main.py                   routes: GET /api/zone1/status, POST .../actuator/{device}, POST .../plot/{id}/valve,
-                               GET/POST /api/zone1/simulator/config
+                               GET/POST /api/zone1/simulator/config, GET /api/zone1/history
 
 src/
   types/farm.ts             ชนิดข้อมูล SensorReading, DeviceState, PlotStatus, ZoneStatus, SimulatorConfig, RangeConfig
   api/client.ts               fetch wrapper เรียก backend (getZoneStatus, setActuator, setValve,
-                               fetchSimulatorConfig, updateSimulatorConfig)
+                               fetchSimulatorConfig, updateSimulatorConfig, fetchHistory)
   mock/mockData.ts          (Phase 1 เดิม) ฟังก์ชันสุ่มค่าเซนเซอร์ฝั่ง browser — เก็บไว้อ้างอิง ไม่ได้ใช้แล้ว
   hooks/useMockSensorData.ts  (Phase 1 เดิม) hook สุ่มข้อมูลในเบราว์เซอร์ — เก็บไว้อ้างอิง ไม่ได้ใช้แล้ว
-  hooks/useZoneStatus.ts   hook ที่ใช้จริงตอนนี้: polling backend ทุก 5 วินาที + สั่งงานอุปกรณ์/วาล์วผ่าน API
+  hooks/useZoneStatus.ts   hook ที่ใช้จริงตอนนี้: seed ประวัติจาก Supabase ครั้งแรก + polling backend ทุก 5 วินาที
+                             + สั่งงานอุปกรณ์/วาล์วผ่าน API
   hooks/useSimulatorConfig.ts หน้า Simulator Control ใช้: polling config ทุก 5 วิ + setPaused/setRange
   lib/status.ts             เกณฑ์ปลอดภัย/เฝ้าระวัง/อันตราย ของอุณหภูมิ ความชื้นอากาศ ความชื้นดิน
   lib/automation.ts         กฎอัตโนมัติแบบ rule-based (if-then) preview ของ Phase 5 — ยังไม่ใช่ AI/ML
@@ -131,7 +148,7 @@ src/
     PlotValveList.tsx       รายการวาล์วน้ำหยดรายแปลง เปิด-ปิดทีละแปลงได้
     AlertBanner.tsx         แบนเนอร์แจ้งเตือนเมื่อค่าเซนเซอร์เกินช่วงปลอดภัย
     EventLog.tsx            ประวัติการเปิด/ปิดอุปกรณ์และการแจ้งเตือนล่าสุด (Activity Log)
-    Sparkline.tsx           กราฟเส้นเล็กแสดงแนวโน้มค่าล่าสุด (เก็บใน memory เท่านั้น ไม่ persist)
+    Sparkline.tsx           กราฟเส้นเล็กแสดงแนวโน้มค่าล่าสุด — ตอนนี้ seed มาจาก Supabase ตอนโหลดหน้า (Phase 4)
     CameraPlaceholder.tsx   จุดที่จะแสดงภาพจากกล้องในอนาคต (Phase 6)
     SimulatorControlPanel.tsx หน้าใหม่ Phase 3: หยุด/เริ่มจำลอง, ปรับช่วงค่าสุ่มต่อ metric, ปุ่มลัดทดสอบราสีเทา
 ```
@@ -175,15 +192,25 @@ src/
 
 `src/mock/mockData.ts` และ `src/hooks/useMockSensorData.ts` (ของ Phase 1) ยังเก็บไว้ในโปรเจคเป็นข้อมูลอ้างอิง แต่ไม่ได้ถูกเรียกใช้แล้ว
 
-## จุดที่ต้องแก้ตอน Phase 4
+## สิ่งที่ทำใน Phase 4
 
-Phase 4 จะเพิ่ม database เก็บประวัติข้อมูลจริงแทน sparkline ที่เก็บใน memory อย่างเดียวตอนนี้ (`src/components/Sparkline.tsx`, `history` ใน `useZoneStatus.ts`) และทำกราฟย้อนหลังได้ยาวกว่าปัจจุบัน — จุดที่ backend รับข้อมูลจาก MQTT ใน `mqtt_bridge.py` เป็นจุดที่เหมาะจะเขียนลง database เพิ่ม (persist ทุกครั้งที่ state อัปเดต) โดยไม่ต้องแตะโครงสร้าง MQTT topic ที่วางไว้แล้ว
+- เพิ่มตาราง `sensor_readings` บน **Supabase (Postgres)** — schema อยู่ที่ `backend/supabase/schema.sql`
+- `backend/app/supabase_client.py` คุยกับ Supabase ผ่าน PostgREST โดยตรงด้วย `httpx` (ไม่ใช้ SDK `supabase-py` เต็มตัว เพราะต้องการแค่ insert 1 แบบ กับ select 1 แบบ):
+  - `insert_reading()` — บันทึก 1 แถวต่อ tick, ไม่ throw ถ้า Supabase ล่ม (แค่ log แล้วปล่อยผ่าน ไม่ให้ MQTT bridge พัง)
+  - `fetch_history()` — ดึงย้อนหลังตามช่วงเวลา ให้ error ปกติถ้าดึงไม่ได้ (endpoint จะแปลงเป็น 502)
+- `mqtt_bridge.py` เกาะกับ heartbeat `farm/zone1/sim/status` ที่มีอยู่แล้ว (ส่งทุก tick หลัง publish ค่าเซนเซอร์) เป็นสัญญาณ "มีค่าที่บันทึกได้แล้ว" — ไม่ต้องเพิ่ม topic หรือ timer ใหม่ ข้ามการบันทึกตอน pause และตอน snapshot แรกที่เพิ่งต่อ broker (`lastTick` เป็น `null`)
+- เพิ่ม `GET /api/zone1/history?hours=6` (สูงสุด 24 ชม.) คืนค่าเป็น array รูปแบบเดียวกับ `HistoryPoint` ฝั่ง frontend ไม่ต้องแปลงข้อมูลเพิ่ม
+- `useZoneStatus.ts` เรียก `fetchHistory()` ครั้งเดียวตอนโหลดหน้า มาเติม sparkline ก่อนเริ่ม polling สด — ถ้าดึงไม่ได้ (ยังไม่ตั้ง Supabase หรือเน็ตมีปัญหา) จะเงียบแล้วเริ่มจากค่าว่างเหมือน Phase 3 เดิม ไม่กระทบสถานะ "เชื่อมต่อ backend ไม่ได้" ที่ใช้แสดงหน้า error เต็มจอ
+
+## จุดที่ต้องแก้ตอน Phase 5
+
+Phase 5 จะย้ายจาก rule-based automation (`src/lib/automation.ts`, รันฝั่ง browser) ไปเป็นระบบควบคุมอัตโนมัติจริงที่รันบน Raspberry Pi แบบ offline-first — จุดที่ต้องคิดเพิ่มคือ Pi จะต่อ Supabase ตรงได้ไหมตอนเน็ตหลุด หรือต้อง queue ไว้ sync ทีหลัง (Supabase ยังใช้เก็บ history ต่อได้เหมือนเดิม ไม่ต้องเปลี่ยน schema)
 
 ## Roadmap (6 phases)
 
 1. Phase 1 — Dashboard UI ด้วย mock data ล้วนๆ ✅
 2. Phase 2 — FastAPI mock backend + frontend ดึงจาก API จริงผ่าน polling ✅
-3. **Phase 3 (เฟสนี้)** — MQTT simulator แยก process จริง + หน้าควบคุม simulator ✅
-4. Phase 4 — Database เก็บประวัติข้อมูลจริง + กราฟย้อนหลัง
+3. Phase 3 — MQTT simulator แยก process จริง + หน้าควบคุม simulator ✅
+4. **Phase 4 (เฟสนี้)** — เก็บประวัติข้อมูลจริงใน Supabase + กราฟย้อนหลังไม่หายตอน refresh ✅
 5. Phase 5 — ระบบควบคุมอัตโนมัติจริงบน Pi (ต่อยอดจาก rule-based ใน `lib/automation.ts`), Raspberry Pi เสิร์ฟเว็บเองแบบ offline-first
 6. Phase 6 — AI ตรวจโรคใบ/ราสีเทา/ระยะสุกของผลจากกล้อง รันบน Pi

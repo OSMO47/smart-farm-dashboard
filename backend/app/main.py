@@ -1,7 +1,9 @@
 import asyncio
 from contextlib import asynccontextmanager
+from datetime import datetime, timedelta, timezone
 from typing import Literal
 
+import httpx
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
@@ -9,7 +11,10 @@ from pydantic import BaseModel
 from shared import topics as topic_names
 
 from . import state as state_module
+from . import supabase_client
 from .mqtt_bridge import MqttBridge
+
+MAX_HISTORY_HOURS = 24
 
 DeviceName = Literal["pump", "fan", "light"]
 
@@ -79,6 +84,16 @@ async def set_valve(plot_id: str, command: ValveCommand) -> dict:
     except asyncio.TimeoutError:
         raise HTTPException(status_code=504, detail="simulator did not acknowledge in time") from None
     return state_module.state
+
+
+@app.get("/api/zone1/history")
+async def get_history(hours: float = 6) -> list[dict]:
+    hours = min(hours, MAX_HISTORY_HOURS)
+    since_iso = (datetime.now(timezone.utc) - timedelta(hours=hours)).isoformat()
+    try:
+        return await supabase_client.fetch_history(since_iso)
+    except httpx.HTTPError:
+        raise HTTPException(status_code=502, detail="could not load history from Supabase") from None
 
 
 @app.get("/api/zone1/simulator/config")

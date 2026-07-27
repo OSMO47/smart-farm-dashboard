@@ -1,9 +1,10 @@
 import { useEffect, useRef, useState } from 'react';
 import type { HistoryPoint, ZoneStatus } from '../types/farm';
-import { fetchZoneStatus, setActuator, setValve, type DeviceName } from '../api/client';
+import { fetchHistory, fetchZoneStatus, setActuator, setValve, type DeviceName } from '../api/client';
 
 const POLL_INTERVAL_MS = 5000;
-const HISTORY_LIMIT = 24;
+const HISTORY_LIMIT = 200;
+const HISTORY_SEED_HOURS = 6;
 
 function toHistoryPoint(status: ZoneStatus): HistoryPoint {
   const soilAvg = status.plots.reduce((sum, p) => sum + p.soilMoisture, 0) / status.plots.length;
@@ -44,7 +45,24 @@ export function useZoneStatus(): UseZoneStatusResult {
       }
     };
 
-    poll();
+    // Phase 4: seed the sparklines from Supabase-persisted history so they aren't blank on every
+    // refresh. A failed seed is non-fatal — it must not trip the "backend unreachable" error state,
+    // since live polling works fine independently of history.
+    const seedHistory = async () => {
+      try {
+        const points = await fetchHistory(HISTORY_SEED_HOURS);
+        if (cancelled || points.length === 0) return;
+        points.forEach((p) => seenTimestamps.current.add(p.timestamp));
+        setHistory(points.slice(-HISTORY_LIMIT));
+      } catch {
+        // no persisted history available — sparklines just start empty and fill up live, as before
+      }
+    };
+
+    seedHistory().then(() => {
+      if (cancelled) return;
+      poll();
+    });
     const id = setInterval(poll, POLL_INTERVAL_MS);
     return () => {
       cancelled = true;
