@@ -228,12 +228,12 @@ export default function Dashboard() {
               setAutoMode(next);
               pushEvent(next ? 'เปิดโหมดอัตโนมัติ · Auto Mode On' : 'ปิดโหมดอัตโนมัติ กลับสู่แมนนวล · Auto Mode Off', 'device');
             }}
-            className="w-[46px] h-[27px] rounded-full p-[3px] shrink-0 flex items-center transition-colors duration-200 cursor-pointer"
+            className="w-[50px] h-[30px] rounded-full p-[3px] shrink-0 flex items-center transition-colors duration-200 cursor-pointer"
             style={{ background: autoMode ? '#16a34a' : '#d7e2db' }}
           >
             <span
-              className="w-[21px] h-[21px] rounded-full bg-white shadow-[0_1px_3px_rgba(0,0,0,0.25)] transition-transform duration-200"
-              style={{ transform: autoMode ? 'translateX(19px)' : 'translateX(0)' }}
+              className="w-6 h-6 rounded-full bg-white shadow-[0_1px_3px_rgba(0,0,0,0.25)] transition-transform duration-200"
+              style={{ transform: autoMode ? 'translateX(20px)' : 'translateX(0)' }}
             />
           </button>
         </div>

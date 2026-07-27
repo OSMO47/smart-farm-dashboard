@@ -65,7 +65,7 @@ function CameraIcon() {
 
 function ValveDropIcon() {
   return (
-    <svg width="11" height="11" viewBox="0 0 24 24" fill="none">
+    <svg width="13" height="13" viewBox="0 0 24 24" fill="none">
       <path
         d="M12 3s6 7 6 11a6 6 0 0 1-12 0c0-4 6-11 6-11z"
         stroke="currentColor"
@@ -96,12 +96,12 @@ export default function GreenhouseFloorplan({
   disabled = false,
 }: GreenhouseFloorplanProps) {
   return (
-    <div
-      className="relative w-full rounded-2xl overflow-hidden border border-[#d3e6d8]"
-      style={{ aspectRatio: '16 / 11', background: '#e9f4ec' }}
-    >
+    <div className="w-full rounded-2xl overflow-hidden border border-[#d3e6d8]" style={{ background: '#e9f4ec' }}>
       {/* แถวไฟปลูกพืชด้านบน */}
-      <div className="absolute left-0 right-0 top-0 flex items-center justify-evenly px-[10%] border-b border-dashed border-[#b9d9c1]" style={{ height: '13%', background: '#dcefe1' }}>
+      <div
+        className="flex items-center justify-evenly px-[10%] py-2 border-b border-dashed border-[#b9d9c1]"
+        style={{ background: '#dcefe1' }}
+      >
         {[0, 1, 2].map((i) => (
           <div
             key={i}
@@ -119,98 +119,94 @@ export default function GreenhouseFloorplan({
         ))}
       </div>
 
-      {/* กริดแปลงปลูก 4x2 */}
-      <div
-        className="absolute grid grid-cols-4 grid-rows-2 gap-2.5"
-        style={{ left: '5%', right: '20%', top: '17%', bottom: '14%' }}
-      >
-        {plots.map((plot) => {
-          const status = getSoilMoistureStatus(plot.soilMoisture);
-          const watering = devices.pump && plot.valveOpen;
-          return (
-            <button
-              key={plot.id}
-              type="button"
-              onClick={() => onToggleValve(plot.id)}
-              disabled={disabled}
-              className="rounded-xl flex flex-col justify-between px-[7px] py-1.5 min-w-0 text-left"
-              style={{
-                background: `repeating-linear-gradient(135deg, ${TINT[status.level]} 0px, ${TINT[status.level]} 7px, rgba(255,255,255,0.25) 7px, rgba(255,255,255,0.25) 14px)`,
-                border: `1.5px solid ${plot.valveOpen ? '#2563eb' : EDGE[status.level]}`,
-                transition: 'border-color 0.2s ease',
-                opacity: disabled ? 0.6 : 1,
-                cursor: disabled ? 'not-allowed' : 'pointer',
-              }}
-              aria-label={`แปลง ${plot.id} · ดิน ${plot.soilMoisture.toFixed(0)}% · แตะเพื่อ${plot.valveOpen ? 'ปิด' : 'เปิด'}วาล์ว`}
-            >
-              <div className="flex justify-between items-start">
-                <span className="text-[10.5px] font-extrabold text-[#3d5245] bg-white/80 rounded-md px-1.5">
-                  {plot.id}
-                </span>
-                <span
-                  className={`w-[18px] h-[18px] rounded-full flex items-center justify-center ${watering ? 'animate-drip-pulse' : ''}`}
-                  style={{
-                    background: plot.valveOpen ? '#2563eb' : 'rgba(255,255,255,0.8)',
-                    color: plot.valveOpen ? '#ffffff' : '#b3c2b8',
-                  }}
-                >
-                  <ValveDropIcon />
-                </span>
-              </div>
-              <div className="text-center">
-                <div className="text-[clamp(13px,1.6vw,17px)] font-extrabold text-[#0f2016] leading-none">
-                  {plot.soilMoisture.toFixed(0)}%
+      {/* กลาง: กริดแปลงปลูก (2 คอลัมน์บนมือถือ, 4 คอลัมน์บนจอกว้าง) + คอลัมน์เซนเซอร์/พัดลม */}
+      <div className="flex gap-2 sm:gap-3 p-2.5 sm:p-3">
+        <div className="flex-1 min-w-0 grid grid-cols-2 sm:grid-cols-4 gap-2 sm:gap-2.5">
+          {plots.map((plot) => {
+            const status = getSoilMoistureStatus(plot.soilMoisture);
+            const watering = devices.pump && plot.valveOpen;
+            return (
+              <button
+                key={plot.id}
+                type="button"
+                onClick={() => onToggleValve(plot.id)}
+                disabled={disabled}
+                className="rounded-xl flex flex-col justify-between gap-1.5 px-2.5 py-2 min-w-0 min-h-[72px] sm:min-h-[84px] text-left"
+                style={{
+                  background: `repeating-linear-gradient(135deg, ${TINT[status.level]} 0px, ${TINT[status.level]} 7px, rgba(255,255,255,0.25) 7px, rgba(255,255,255,0.25) 14px)`,
+                  border: `1.5px solid ${plot.valveOpen ? '#2563eb' : EDGE[status.level]}`,
+                  transition: 'border-color 0.2s ease',
+                  opacity: disabled ? 0.6 : 1,
+                  cursor: disabled ? 'not-allowed' : 'pointer',
+                }}
+                aria-label={`แปลง ${plot.id} · ดิน ${plot.soilMoisture.toFixed(0)}% · แตะเพื่อ${plot.valveOpen ? 'ปิด' : 'เปิด'}วาล์ว`}
+              >
+                <div className="flex justify-between items-start">
+                  <span className="text-[11.5px] font-extrabold text-[#3d5245] bg-white/80 rounded-md px-1.5 py-0.5">
+                    {plot.id}
+                  </span>
+                  <span
+                    className={`w-6 h-6 rounded-full flex items-center justify-center shrink-0 ${watering ? 'animate-drip-pulse' : ''}`}
+                    style={{
+                      background: plot.valveOpen ? '#2563eb' : 'rgba(255,255,255,0.8)',
+                      color: plot.valveOpen ? '#ffffff' : '#b3c2b8',
+                    }}
+                  >
+                    <ValveDropIcon />
+                  </span>
                 </div>
-                <div className="text-[9.5px] font-semibold text-[#5b6d61] mt-0.5">ดิน · Soil</div>
-              </div>
-              <div className="h-1 rounded-full bg-white/65 relative overflow-hidden">
-                <div
-                  className="absolute left-0 top-0 bottom-0 rounded-full transition-[width] duration-500"
-                  style={{ width: `${plot.soilMoisture}%`, background: status.color }}
-                />
-              </div>
-            </button>
-          );
-        })}
-      </div>
+                <div className="text-center">
+                  <div className="text-lg sm:text-base font-extrabold text-[#0f2016] leading-none">
+                    {plot.soilMoisture.toFixed(0)}%
+                  </div>
+                  <div className="text-[10.5px] font-semibold text-[#5b6d61] mt-1">ดิน · Soil</div>
+                </div>
+                <div className="h-1.5 rounded-full bg-white/65 relative overflow-hidden">
+                  <div
+                    className="absolute left-0 top-0 bottom-0 rounded-full transition-[width] duration-500"
+                    style={{ width: `${plot.soilMoisture}%`, background: status.color }}
+                  />
+                </div>
+              </button>
+            );
+          })}
+        </div>
 
-      {/* คอลัมน์ขวา: กล้อง / เซนเซอร์อากาศ / พัดลม */}
-      <div
-        className="absolute flex flex-col items-center justify-between py-1"
-        style={{ right: '2.5%', top: '17%', width: '15%', minWidth: '74px', bottom: '14%' }}
-      >
-        <div className="w-11 h-11 rounded-xl bg-white border border-[#d9e2db] flex items-center justify-center text-[#93a39a] shadow-[0_2px_6px_rgba(20,50,30,0.08)]">
-          <CameraIcon />
-        </div>
-        <div className="bg-white border border-[#d3e6d8] rounded-[10px] px-2 py-1.5 shadow-[0_2px_6px_rgba(20,50,30,0.1)]">
-          <div className="text-[10px] font-bold text-[#5b6d61] text-center">อากาศ · Air</div>
-          <div className="text-[12.5px] font-extrabold text-[#0f2016] text-center whitespace-nowrap">
-            {temperatureDisplay}°{unitLabel}
+        {/* คอลัมน์ขวา: กล้อง / เซนเซอร์อากาศ / พัดลม */}
+        <div className="w-[70px] sm:w-20 shrink-0 flex flex-col items-center justify-between gap-2">
+          <div className="w-11 h-11 rounded-xl bg-white border border-[#d9e2db] flex items-center justify-center text-[#93a39a] shadow-[0_2px_6px_rgba(20,50,30,0.08)]">
+            <CameraIcon />
           </div>
-          <div className="text-[12.5px] font-extrabold text-[#0f2016] text-center whitespace-nowrap">
-            {humidityDisplay}%
+          <div className="bg-white border border-[#d3e6d8] rounded-[10px] px-2 py-1.5 shadow-[0_2px_6px_rgba(20,50,30,0.1)] w-full">
+            <div className="text-[10.5px] font-bold text-[#5b6d61] text-center">อากาศ · Air</div>
+            <div className="text-[13px] font-extrabold text-[#0f2016] text-center whitespace-nowrap">
+              {temperatureDisplay}°{unitLabel}
+            </div>
+            <div className="text-[13px] font-extrabold text-[#0f2016] text-center whitespace-nowrap">
+              {humidityDisplay}%
+            </div>
           </div>
-        </div>
-        <div
-          className="w-11 h-11 rounded-xl bg-white flex items-center justify-center shadow-[0_2px_6px_rgba(20,50,30,0.08)]"
-          style={{
-            border: `1px solid ${devices.fan ? '#1f9d55' : '#dfe8e2'}`,
-            color: devices.fan ? '#1f9d55' : '#93a39a',
-          }}
-        >
-          <div className={`flex items-center justify-center ${devices.fan ? 'animate-fan-spin' : ''}`}>
-            <FanIcon />
+          <div
+            className="w-11 h-11 rounded-xl bg-white flex items-center justify-center shadow-[0_2px_6px_rgba(20,50,30,0.08)]"
+            style={{
+              border: `1px solid ${devices.fan ? '#1f9d55' : '#dfe8e2'}`,
+              color: devices.fan ? '#1f9d55' : '#93a39a',
+            }}
+          >
+            <div className={`flex items-center justify-center ${devices.fan ? 'animate-fan-spin' : ''}`}>
+              <FanIcon />
+            </div>
           </div>
         </div>
       </div>
 
       {/* แถวปั๊มน้ำหลักด้านล่าง */}
       <div
-        className="absolute left-0 right-0 bottom-0 flex items-center justify-center gap-2.5 border-t border-dashed border-[#b9d9c1]"
-        style={{ height: '11%', background: '#dcefe1' }}
+        className="flex items-center justify-center gap-2.5 py-2.5 px-3 border-t border-dashed border-[#b9d9c1] flex-wrap text-center"
+        style={{ background: '#dcefe1' }}
       >
         <div
-          className="w-11 h-11 rounded-xl bg-white flex items-center justify-center shadow-[0_2px_6px_rgba(20,50,30,0.08)]"
+          className="w-11 h-11 rounded-xl bg-white flex items-center justify-center shadow-[0_2px_6px_rgba(20,50,30,0.08)] shrink-0"
           style={{
             border: `1px solid ${devices.pump ? '#2563eb' : '#dfe8e2'}`,
             color: devices.pump ? '#2563eb' : '#93a39a',

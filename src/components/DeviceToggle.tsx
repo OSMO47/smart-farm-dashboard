@@ -88,12 +88,12 @@ export default function DeviceToggle({
         aria-label={`${label} · ${labelEn}`}
         onClick={onToggle}
         disabled={disabled}
-        className="w-[46px] h-[27px] rounded-full p-[3px] shrink-0 flex items-center transition-colors duration-200"
+        className="w-[50px] h-[30px] rounded-full p-[3px] shrink-0 flex items-center transition-colors duration-200"
         style={{ background: on ? accent : '#d7e2db', cursor: disabled ? 'not-allowed' : 'pointer' }}
       >
         <span
-          className="w-[21px] h-[21px] rounded-full bg-white shadow-[0_1px_3px_rgba(0,0,0,0.25)] transition-transform duration-200"
-          style={{ transform: on ? 'translateX(19px)' : 'translateX(0)' }}
+          className="w-6 h-6 rounded-full bg-white shadow-[0_1px_3px_rgba(0,0,0,0.25)] transition-transform duration-200"
+          style={{ transform: on ? 'translateX(20px)' : 'translateX(0)' }}
         />
       </button>
     </div>
