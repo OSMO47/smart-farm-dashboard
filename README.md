@@ -1,30 +1,54 @@
-# Smart Farm Dashboard — Phase 1
+# Smart Farm Dashboard — Phase 2
 
 แดชบอร์ดควบคุมโรงเรือนสตรอว์เบอร์รี่ขนาดทดลอง 1 โซน (8 แปลงปลูก) เปิดได้ทั้งจากคอมพิวเตอร์และมือถือ
 
-นี่คือ **Phase 1 จาก 6 phase** ใน roadmap ของโปรเจค Smart Farm — เฟสนี้สร้างเฉพาะหน้าเว็บ (UI) ด้วย **ข้อมูลจำลอง (mock data) ทั้งหมด** ยังไม่มีการเชื่อมต่อ backend, MQTT, หรือฮาร์ดแวร์จริงใดๆ
+นี่คือ **Phase 2 จาก 6 phase** ใน roadmap ของโปรเจค Smart Farm — frontend เชื่อมกับ **FastAPI mock backend** จริงแล้วผ่าน HTTP polling (ตัวเลขยังสุ่มอยู่เหมือน Phase 1 แต่ย้ายไปสุ่มฝั่ง server แทนฝั่ง browser) ยังไม่มี MQTT หรือฮาร์ดแวร์จริง
 
 ## วิธีรัน
+
+ต้องรัน 2 servers พร้อมกัน (คนละ terminal):
+
+**1) Backend (FastAPI)**
+
+```bash
+cd backend
+python -m venv venv
+venv\Scripts\activate        # Windows (PowerShell/cmd)
+# source venv/bin/activate   # macOS/Linux
+pip install -r requirements.txt
+uvicorn app.main:app --reload --port 8000
+```
+
+**2) Frontend (Vite)**
 
 ```bash
 npm install
 npm run dev
 ```
 
-เปิดเบราว์เซอร์ไปที่ URL ที่ Vite แสดง (ปกติ `http://localhost:5173`) ทดสอบมือถือได้ผ่าน DevTools mobile view
+เปิดเบราว์เซอร์ไปที่ URL ที่ Vite แสดง (ปกติ `http://localhost:5173`) ทดสอบมือถือได้ผ่าน DevTools mobile view — ถ้า backend ยังไม่รัน หน้าเว็บจะขึ้นข้อความแจ้งเชื่อมต่อไม่ได้พร้อมคำสั่งให้รันเอง
+
+ปรับ URL ของ backend ได้ผ่าน env var `VITE_API_BASE_URL` (ดูตัวอย่างใน `.env.example`) ค่าเริ่มต้นคือ `http://localhost:8000`
 
 ## โครงสร้างโปรเจค
 
 ```
+backend/                  FastAPI mock backend (Phase 2)
+  requirements.txt
+  app/main.py              routes: GET /api/zone1/status, POST .../actuator/{device}, POST .../plot/{id}/valve
+  app/state.py              state จำลองในหน่วยความจำ + step() สุ่มค่าต่อเนื่องทุก 5 วิ (พอร์ตมาจาก mockData.ts เดิม)
+
 src/
   types/farm.ts          ชนิดข้อมูล SensorReading, DeviceState, PlotStatus, ZoneStatus
-  mock/mockData.ts        ฟังก์ชันสุ่มค่าเซนเซอร์และจำลองการเปลี่ยนแปลง (random walk)
-  hooks/useMockSensorData.ts  hook จำลองข้อมูลเซนเซอร์เปลี่ยนทุก 5 วินาที
+  api/client.ts           fetch wrapper เรียก backend (getZoneStatus, setActuator, setValve)
+  mock/mockData.ts        (Phase 1 เดิม) ฟังก์ชันสุ่มค่าเซนเซอร์ฝั่ง browser — เก็บไว้อ้างอิง ไม่ได้ใช้แล้ว
+  hooks/useMockSensorData.ts  (Phase 1 เดิม) hook สุ่มข้อมูลในเบราว์เซอร์ — เก็บไว้อ้างอิง ไม่ได้ใช้แล้ว
+  hooks/useZoneStatus.ts   hook ที่ใช้จริงตอนนี้: polling backend ทุก 5 วินาที + สั่งงานอุปกรณ์/วาล์วผ่าน API
   lib/status.ts           เกณฑ์ปลอดภัย/เฝ้าระวัง/อันตราย ของอุณหภูมิ ความชื้นอากาศ ความชื้นดิน
   lib/automation.ts       กฎอัตโนมัติแบบ rule-based (if-then) preview ของ Phase 5 — ยังไม่ใช่ AI/ML
   components/
-    Dashboard.tsx          หน้าหลัก รวมทุกอย่างเข้าด้วยกัน + ควบคุม state อุปกรณ์ + โหมดอัตโนมัติ
-    GreenhouseFloorplan.tsx ผังโรงเรือนแบบ top-down: แปลงปลูก 8 แปลง, เซนเซอร์, ปั๊ม, พัดลม, ไฟ
+    Dashboard.tsx          หน้าหลัก ดึงสถานะจาก useZoneStatus + แสดง loading/error เมื่อต่อ backend ไม่ได้
+    GreenhouseFloorplan.tsx ผังโรงเรือนแบบ flexbox/grid: แปลงปลูก 8 แปลง, เซนเซอร์, ปั๊ม, พัดลม, ไฟ (responsive มือถือ)
     SensorCard.tsx          การ์ดแสดงค่าอุณหภูมิ/ความชื้นอากาศ/ความชื้นดิน พร้อมแถบช่วง ป้ายเตือน และ sparkline แนวโน้ม
     DeviceToggle.tsx        สวิตช์เปิด-ปิดอุปกรณ์หลัก (ปั๊ม/พัดลม/ไฟ) — ปิดใช้งานเมื่ออยู่โหมดอัตโนมัติ
     PlotValveList.tsx       รายการวาล์วน้ำหยดรายแปลง เปิด-ปิดทีละแปลงได้
@@ -60,15 +84,21 @@ src/
 - **ความชื้นอากาศ**: เกิน 85% เฝ้าระวัง (เสี่ยงราสีเทา), เกิน 90% อันตราย
 - **ความชื้นดิน**: เหมาะสม 40–75%, เฝ้าระวังนอกช่วงนี้, อันตรายต่ำกว่า 30% หรือสูงกว่า 82%
 
-## จุดที่ต้องแก้ตอน Phase 2
+## สิ่งที่ทำใน Phase 2
 
-Phase 2 จะเพิ่ม FastAPI mock endpoint และเปลี่ยนให้ dashboard ดึงข้อมูลจริงแทนการสุ่มในเครื่อง จุดที่ต้องแก้:
+- สร้าง **FastAPI mock backend** (`backend/`) ที่ยังสุ่มค่าเซนเซอร์เหมือนเดิม แต่ทำงานฝั่ง server แทนฝั่ง browser พร้อม background task สุ่มค่าต่อเนื่องทุก 5 วินาที
+- Endpoints: `GET /api/zone1/status`, `POST /api/zone1/actuator/{pump|fan|light}`, `POST /api/zone1/plot/{id}/valve`
+- ตั้งค่า CORS ให้ FastAPI (พอร์ต 8000) รับ request จาก Vite dev server (พอร์ต 5173) ได้
+- เพิ่ม `src/hooks/useZoneStatus.ts` + `src/api/client.ts` — frontend polling backend ทุก 5 วินาที และสั่งเปิด/ปิดอุปกรณ์/วาล์วผ่าน HTTP POST แทนการอัปเดต local state ตรงๆ
+- `Dashboard.tsx` แสดงหน้า loading/error พร้อมคำสั่งให้รัน backend เองเมื่อเชื่อมต่อไม่ได้
 
-1. **`src/hooks/useMockSensorData.ts`** — เปลี่ยนจากการสุ่มค่าด้วย `setInterval` ให้ polling หรือ subscribe ข้อมูลจาก FastAPI แทน (คอมเมนต์ไว้ในไฟล์แล้ว)
-2. **`src/components/Dashboard.tsx`** — `togglePump` / `toggleFan` / `toggleLight` และ `toggleValve` ใน `useMockSensorData` ปัจจุบันแค่อัปเดต state ในเครื่อง Phase 2 ต้องเปลี่ยนให้ยิง API/MQTT command จริง (คอมเมนต์ไว้ในไฟล์แล้วที่จุดเรียกใช้)
-3. **`src/mock/mockData.ts`** — จะไม่ถูกใช้แล้วเมื่อมี backend จริง (เก็บไว้อ้างอิง หรือใช้ต่อสำหรับ dev/test โดยไม่ต้องรัน backend)
+`src/mock/mockData.ts` และ `src/hooks/useMockSensorData.ts` (ของ Phase 1) ยังเก็บไว้ในโปรเจคเป็นข้อมูลอ้างอิง แต่ไม่ได้ถูกเรียกใช้แล้ว
 
-Topic MQTT ที่ออกแบบไว้สำหรับ Phase 2-3 (แยกคำสั่งกับสถานะจริงตามแนวคิด command/state):
+## จุดที่ต้องแก้ตอน Phase 3
+
+Phase 3 จะเพิ่ม MQTT simulator ปล่อยค่าเซนเซอร์แบบเรียลไทม์แทนการสุ่มใน `backend/app/state.py` โดย backend จะ subscribe ค่าจาก MQTT broker แทน แล้วยังคงเสิร์ฟผ่าน endpoint เดิมให้ frontend ไม่ต้องแก้
+
+Topic MQTT ที่ออกแบบไว้ (แยกคำสั่งกับสถานะจริงตามแนวคิด command/state):
 
 ```
 farm/zone1/sensor/temperature
@@ -83,9 +113,9 @@ farm/system/alert
 
 ## Roadmap (6 phases)
 
-1. **Phase 1 (เฟสนี้)** — Dashboard UI ด้วย mock data ล้วนๆ
-2. Phase 2 — FastAPI mock endpoint + เปลี่ยน hook ให้ดึงจาก API จริง
-3. Phase 3 — MQTT simulator ปล่อยค่าเซนเซอร์แบบเรียลไทม์
+1. Phase 1 — Dashboard UI ด้วย mock data ล้วนๆ ✅
+2. **Phase 2 (เฟสนี้)** — FastAPI mock backend + frontend ดึงจาก API จริงผ่าน polling ✅
+3. Phase 3 — MQTT simulator ปล่อยค่าเซนเซอร์แบบเรียลไทม์ (backend subscribe แทนการสุ่มเอง)
 4. Phase 4 — Database เก็บประวัติข้อมูลจริง + กราฟย้อนหลัง
-5. Phase 5 — ระบบควบคุมอัตโนมัติ, Raspberry Pi เสิร์ฟเว็บเองแบบ offline-first
+5. Phase 5 — ระบบควบคุมอัตโนมัติจริงบน Pi (ต่อยอดจาก rule-based ใน `lib/automation.ts`), Raspberry Pi เสิร์ฟเว็บเองแบบ offline-first
 6. Phase 6 — AI ตรวจโรคใบ/ราสีเทา/ระยะสุกของผลจากกล้อง รันบน Pi

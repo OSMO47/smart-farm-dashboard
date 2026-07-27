@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
-import type { Alert, DeviceState, LogEvent } from '../types/farm';
-import { useMockSensorData } from '../hooks/useMockSensorData';
+import type { Alert, LogEvent } from '../types/farm';
+import { useZoneStatus } from '../hooks/useZoneStatus';
 import { getHumidityStatus, getSoilMoistureStatus, getTemperatureStatus } from '../lib/status';
 import { computeAutoFan, computeAutoLight, computeAutoPump, computeAutoValve } from '../lib/automation';
 import GreenhouseFloorplan from './GreenhouseFloorplan';
@@ -15,12 +15,9 @@ const ACCENT = '#1f9d55';
 const EVENT_LOG_LIMIT = 30;
 
 export default function Dashboard() {
-  // Phase 1: สถานะอุปกรณ์เก็บด้วย useState ในเครื่อง
-  // Phase 2: เปลี่ยนมาอ่านค่าเริ่มต้นจาก API และยิงคำสั่งเปิด/ปิดไปที่ FastAPI/MQTT แทน
-  const [devices, setDevices] = useState<DeviceState>({ pump: true, fan: false, light: true });
-  const { reading, plots, history, toggleValve } = useMockSensorData(devices);
-  const devicesRef = useRef(devices);
-  devicesRef.current = devices;
+  // Phase 2: สถานะจริงมาจาก FastAPI mock backend ผ่าน useZoneStatus (polling ทุก 5 วินาที)
+  // แทนการสุ่มในเบราว์เซอร์แบบ Phase 1 (ดู useMockSensorData เดิมเป็นตัวอ้างอิง)
+  const { status, history, error, setDevice, toggleValve } = useZoneStatus();
 
   // โหมดอัตโนมัติ: preview ของ Phase 5 ด้วยกฎ if-then ธรรมดา (ยังไม่ใช่ AI/ML จริง)
   const [autoMode, setAutoMode] = useState(false);
@@ -35,106 +32,73 @@ export default function Dashboard() {
     );
   };
 
-  const togglePump = () => {
-    const next = !devices.pump;
-    setDevices((d) => ({ ...d, pump: next }));
-    pushEvent(next ? 'เปิดปั๊มน้ำหลัก · Main Pump On' : 'ปิดปั๊มน้ำหลัก · Main Pump Off', 'device');
-  };
-  const toggleFan = () => {
-    const next = !devices.fan;
-    setDevices((d) => ({ ...d, fan: next }));
-    pushEvent(next ? 'เปิดพัดลมระบายอากาศ · Fan On' : 'ปิดพัดลมระบายอากาศ · Fan Off', 'device');
-  };
-  const toggleLight = () => {
-    const next = !devices.light;
-    setDevices((d) => ({ ...d, light: next }));
-    pushEvent(next ? 'เปิดไฟปลูกพืช · Grow Light On' : 'ปิดไฟปลูกพืช · Grow Light Off', 'device');
-  };
-  const handleToggleValve = (plotId: string) => {
-    const plot = plots.find((p) => p.id === plotId);
-    toggleValve(plotId);
-    if (plot) {
-      const next = !plot.valveOpen;
-      pushEvent(`วาล์วแปลง ${plotId} ${next ? 'เปิด' : 'ปิด'} · Valve ${next ? 'On' : 'Off'}`, 'device');
-    }
-  };
-
   // กฎอัตโนมัติทำงานทุกครั้งที่ค่าเซนเซอร์อัปเดต (ทุก 5 วินาที) เมื่อโหมดอัตโนมัติเปิดอยู่เท่านั้น
   useEffect(() => {
-    if (!autoMode) return;
+    if (!autoMode || !status) return;
 
-    const nextFan = computeAutoFan(reading.temperature, reading.humidity, devicesRef.current.fan);
-    if (nextFan !== devicesRef.current.fan) {
-      setDevices((d) => ({ ...d, fan: nextFan }));
+    const nextFan = computeAutoFan(status.temperature, status.humidity, status.fan);
+    if (nextFan !== status.fan) {
+      setDevice('fan', nextFan);
       pushEvent(`อัตโนมัติ: ${nextFan ? 'เปิด' : 'ปิด'}พัดลมระบายอากาศ · Auto Fan ${nextFan ? 'On' : 'Off'}`, 'device');
     }
 
-    const hour = new Date(reading.timestamp).getHours();
+    const hour = new Date(status.timestamp).getHours();
     const nextLight = computeAutoLight(hour);
-    if (nextLight !== devicesRef.current.light) {
-      setDevices((d) => ({ ...d, light: nextLight }));
+    if (nextLight !== status.light) {
+      setDevice('light', nextLight);
       pushEvent(`อัตโนมัติ: ${nextLight ? 'เปิด' : 'ปิด'}ไฟปลูกพืช · Auto Light ${nextLight ? 'On' : 'Off'}`, 'device');
     }
 
     let anyValveShouldBeOpen = false;
-    plots.forEach((plot) => {
+    status.plots.forEach((plot) => {
       const nextValve = computeAutoValve(plot.soilMoisture, plot.valveOpen);
       if (nextValve) anyValveShouldBeOpen = true;
       if (nextValve !== plot.valveOpen) {
-        toggleValve(plot.id);
+        toggleValve(plot.id, nextValve);
         pushEvent(`อัตโนมัติ: วาล์วแปลง ${plot.id} ${nextValve ? 'เปิด' : 'ปิด'} · Auto Valve ${nextValve ? 'On' : 'Off'}`, 'device');
       }
     });
 
     const nextPump = computeAutoPump(anyValveShouldBeOpen);
-    if (nextPump !== devicesRef.current.pump) {
-      setDevices((d) => ({ ...d, pump: nextPump }));
+    if (nextPump !== status.pump) {
+      setDevice('pump', nextPump);
       pushEvent(`อัตโนมัติ: ${nextPump ? 'เปิด' : 'ปิด'}ปั๊มน้ำหลัก · Auto Pump ${nextPump ? 'On' : 'Off'}`, 'device');
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [reading, plots, autoMode]);
+  }, [status, autoMode]);
 
-  const temperatureStatus = getTemperatureStatus(reading.temperature);
-  const humidityStatus = getHumidityStatus(reading.humidity);
-  const soilAvg = plots.reduce((sum, p) => sum + p.soilMoisture, 0) / plots.length;
-  const soilStatus = getSoilMoistureStatus(soilAvg);
-
-  const temperatureDisplay = reading.temperature.toFixed(1);
-  const humidityDisplay = reading.humidity.toFixed(0);
-  const soilAvgDisplay = soilAvg.toFixed(0);
-
-  const updatedLabel = useMemo(
-    () => new Date(reading.timestamp).toLocaleTimeString('th-TH', { hour: '2-digit', minute: '2-digit', second: '2-digit' }),
-    [reading.timestamp],
-  );
-
-  const alerts: Alert[] = [];
-  if (humidityStatus.level !== 'safe') {
-    alerts.push({
-      id: 'humidity',
-      level: humidityStatus.level,
-      message: `เตือน: ความชื้นอากาศ ${humidityDisplay}% ${humidityStatus.level === 'danger' ? 'สูงมาก' : 'เกินเกณฑ์'} — เสี่ยงราสีเทาในผลสตรอว์เบอร์รี่`,
-    });
-  }
-  if (temperatureStatus.level !== 'safe') {
-    alerts.push({
-      id: 'temperature',
-      level: temperatureStatus.level,
-      message: `เตือน: อุณหภูมิอากาศ ${temperatureDisplay}°C อยู่นอกช่วงเหมาะสมสำหรับสตรอว์เบอร์รี่`,
-    });
-  }
-  const dryPlots = plots.filter((p) => p.soilMoisture < 40);
-  if (dryPlots.length > 0) {
-    alerts.push({
-      id: 'dry-plots',
-      level: 'warn',
-      message: `แปลง ${dryPlots.map((p) => p.id).join(', ')} ดินแห้งต่ำกว่า 40% — เปิดวาล์วน้ำหยดหรือตรวจระบบน้ำ`,
-    });
-  }
+  const alerts: Alert[] = useMemo(() => {
+    if (!status) return [];
+    const result: Alert[] = [];
+    const humidityStatus = getHumidityStatus(status.humidity);
+    const temperatureStatus = getTemperatureStatus(status.temperature);
+    if (humidityStatus.level !== 'safe') {
+      result.push({
+        id: 'humidity',
+        level: humidityStatus.level,
+        message: `เตือน: ความชื้นอากาศ ${status.humidity.toFixed(0)}% ${humidityStatus.level === 'danger' ? 'สูงมาก' : 'เกินเกณฑ์'} — เสี่ยงราสีเทาในผลสตรอว์เบอร์รี่`,
+      });
+    }
+    if (temperatureStatus.level !== 'safe') {
+      result.push({
+        id: 'temperature',
+        level: temperatureStatus.level,
+        message: `เตือน: อุณหภูมิอากาศ ${status.temperature.toFixed(1)}°C อยู่นอกช่วงเหมาะสมสำหรับสตรอว์เบอร์รี่`,
+      });
+    }
+    const dryPlots = status.plots.filter((p) => p.soilMoisture < 40);
+    if (dryPlots.length > 0) {
+      result.push({
+        id: 'dry-plots',
+        level: 'warn',
+        message: `แปลง ${dryPlots.map((p) => p.id).join(', ')} ดินแห้งต่ำกว่า 40% — เปิดวาล์วน้ำหยดหรือตรวจระบบน้ำ`,
+      });
+    }
+    return result;
+  }, [status]);
+  const prevAlertIdsRef = useRef<Set<string>>(new Set());
 
   // บันทึกลง Activity Log เฉพาะตอนที่แจ้งเตือนเกิดใหม่ ไม่บันทึกซ้ำทุกครั้งที่ค่าอัปเดต
-  const alertKey = alerts.map((a) => a.id).join('|');
-  const prevAlertIdsRef = useRef<Set<string>>(new Set());
   useEffect(() => {
     const currentIds = new Set(alerts.map((a) => a.id));
     const newAlerts = alerts.filter((a) => !prevAlertIdsRef.current.has(a.id));
@@ -154,7 +118,65 @@ export default function Dashboard() {
     }
     prevAlertIdsRef.current = currentIds;
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [alertKey]);
+  }, [alerts]);
+
+  if (!status) {
+    return (
+      <div className="min-h-screen flex items-center justify-center p-6" style={{ background: '#f2f7f3' }}>
+        <div className="max-w-md text-center bg-white border border-[#e1ebe3] rounded-2xl p-8 shadow-[0_1px_3px_rgba(20,50,30,0.05)]">
+          {error ? (
+            <>
+              <div className="text-lg font-bold text-[#dc2626] mb-2">เชื่อมต่อ backend ไม่ได้</div>
+              <div className="text-sm text-[#5b6d61] mb-1">{error}</div>
+              <div className="text-xs text-[#8a998f] mt-3">
+                ตรวจสอบว่ารัน backend อยู่: <code className="bg-[#f2f7f3] px-1.5 py-0.5 rounded">cd backend &amp;&amp; uvicorn app.main:app --reload</code>
+              </div>
+            </>
+          ) : (
+            <div className="text-sm text-[#5b6d61]">กำลังเชื่อมต่อ backend...</div>
+          )}
+        </div>
+      </div>
+    );
+  }
+
+  const togglePump = () => {
+    const next = !status.pump;
+    setDevice('pump', next);
+    pushEvent(next ? 'เปิดปั๊มน้ำหลัก · Main Pump On' : 'ปิดปั๊มน้ำหลัก · Main Pump Off', 'device');
+  };
+  const toggleFan = () => {
+    const next = !status.fan;
+    setDevice('fan', next);
+    pushEvent(next ? 'เปิดพัดลมระบายอากาศ · Fan On' : 'ปิดพัดลมระบายอากาศ · Fan Off', 'device');
+  };
+  const toggleLight = () => {
+    const next = !status.light;
+    setDevice('light', next);
+    pushEvent(next ? 'เปิดไฟปลูกพืช · Grow Light On' : 'ปิดไฟปลูกพืช · Grow Light Off', 'device');
+  };
+  const handleToggleValve = (plotId: string) => {
+    const plot = status.plots.find((p) => p.id === plotId);
+    if (plot) {
+      const next = !plot.valveOpen;
+      toggleValve(plotId, next);
+      pushEvent(`วาล์วแปลง ${plotId} ${next ? 'เปิด' : 'ปิด'} · Valve ${next ? 'On' : 'Off'}`, 'device');
+    }
+  };
+
+  const temperatureStatus = getTemperatureStatus(status.temperature);
+  const humidityStatus = getHumidityStatus(status.humidity);
+  const soilStatus = getSoilMoistureStatus(status.soilMoisture);
+
+  const temperatureDisplay = status.temperature.toFixed(1);
+  const humidityDisplay = status.humidity.toFixed(0);
+  const soilAvgDisplay = status.soilMoisture.toFixed(0);
+
+  const updatedLabel = new Date(status.timestamp).toLocaleTimeString('th-TH', {
+    hour: '2-digit',
+    minute: '2-digit',
+    second: '2-digit',
+  });
 
   const temperatureHistory = history.map((h) => h.temperature);
   const humidityHistory = history.map((h) => h.humidity);
@@ -166,22 +188,22 @@ export default function Dashboard() {
         <div className="flex justify-between items-start gap-4 flex-wrap mb-4.5">
           <div>
             <div className="text-[12.5px] font-bold tracking-[0.14em] uppercase" style={{ color: ACCENT }}>
-              SMART FARM · PHASE 1
+              SMART FARM · PHASE 2
             </div>
             <h1 className="text-2xl sm:text-3xl mt-1.5 mb-0 font-extrabold text-[#0f2016] tracking-tight">
               โรงเรือนสตรอว์เบอร์รี่ · โซน 1
             </h1>
             <div className="text-[13.5px] text-[#5b6d61] mt-1">
-              8 แปลงปลูก · เซนเซอร์ดินรายแปลง · วาล์วน้ำหยดรายแปลง — ข้อมูลจำลอง (Mock)
+              8 แปลงปลูก · เซนเซอร์ดินรายแปลง · วาล์วน้ำหยดรายแปลง — เชื่อมกับ FastAPI mock backend
             </div>
           </div>
           <div className="flex gap-2.5 flex-wrap">
             <div className="flex items-center gap-1.5 bg-white border border-[#d9e8dd] rounded-full px-3.5 py-2 text-[13px] font-semibold text-[#1c3324]">
               <span
                 className="w-2 h-2 rounded-full inline-block"
-                style={{ background: '#22c55e', boxShadow: '0 0 0 3px rgba(34,197,94,0.18)' }}
+                style={{ background: error ? '#f59e0b' : '#22c55e', boxShadow: `0 0 0 3px ${error ? 'rgba(245,158,11,0.18)' : 'rgba(34,197,94,0.18)'}` }}
               />
-              Local Network · ทำงานได้แม้ไม่มีเน็ต
+              {error ? 'เชื่อมต่อ backend มีปัญหา — แสดงข้อมูลล่าสุดที่มี' : 'เชื่อมต่อ backend ปกติ'}
             </div>
             <div className="flex items-center gap-1.5 bg-white border border-[#d9e8dd] rounded-full px-3.5 py-2 text-[13px] font-semibold text-[#5b6d61]">
               อัปเดตล่าสุด {updatedLabel}
@@ -264,8 +286,8 @@ export default function Dashboard() {
                 </span>
               </div>
               <GreenhouseFloorplan
-                devices={devices}
-                plots={plots}
+                devices={status}
+                plots={status.plots}
                 temperatureDisplay={temperatureDisplay}
                 humidityDisplay={humidityDisplay}
                 unitLabel="C"
@@ -274,7 +296,7 @@ export default function Dashboard() {
               />
             </div>
 
-            <PlotValveList plots={plots} pumpOn={devices.pump} onToggleValve={handleToggleValve} disabled={autoMode} />
+            <PlotValveList plots={status.plots} pumpOn={status.pump} onToggleValve={handleToggleValve} disabled={autoMode} />
           </div>
 
           <div className="flex-[1_1_340px] flex flex-col gap-4 min-w-0">
@@ -316,8 +338,8 @@ export default function Dashboard() {
                   labelEn="Main Pump"
                   icon="pump"
                   accent="#2563eb"
-                  on={devices.pump}
-                  statusText={(devices.pump ? 'จ่ายน้ำเข้าท่อเมน · On' : 'ปิดอยู่ · Off') + (autoMode ? ' · Auto' : '')}
+                  on={status.pump}
+                  statusText={(status.pump ? 'จ่ายน้ำเข้าท่อเมน · On' : 'ปิดอยู่ · Off') + (autoMode ? ' · Auto' : '')}
                   onToggle={togglePump}
                   disabled={autoMode}
                 />
@@ -326,8 +348,8 @@ export default function Dashboard() {
                   labelEn="Fan"
                   icon="fan"
                   accent={ACCENT}
-                  on={devices.fan}
-                  statusText={(devices.fan ? 'กำลังระบายอากาศ · On' : 'ปิดอยู่ · Off') + (autoMode ? ' · Auto' : '')}
+                  on={status.fan}
+                  statusText={(status.fan ? 'กำลังระบายอากาศ · On' : 'ปิดอยู่ · Off') + (autoMode ? ' · Auto' : '')}
                   onToggle={toggleFan}
                   disabled={autoMode}
                 />
@@ -336,8 +358,8 @@ export default function Dashboard() {
                   labelEn="Grow Light"
                   icon="light"
                   accent="#d97706"
-                  on={devices.light}
-                  statusText={(devices.light ? 'เปิดอยู่ · On' : 'ปิดอยู่ · Off') + (autoMode ? ' · Auto' : '')}
+                  on={status.light}
+                  statusText={(status.light ? 'เปิดอยู่ · On' : 'ปิดอยู่ · Off') + (autoMode ? ' · Auto' : '')}
                   onToggle={toggleLight}
                   disabled={autoMode}
                 />
