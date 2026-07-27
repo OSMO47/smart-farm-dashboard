@@ -1,0 +1,12 @@
+# amqtt broker config — Phase 3 dev-only MQTT broker
+# No TLS, no auth: fine for a local dev PC with nothing exposed beyond localhost.
+# Swap for a real Mosquitto broker (with auth/TLS) once real hardware/Pi joins the network.
+listeners:
+  default:
+    type: tcp
+    bind: 0.0.0.0:1883
+
+plugins:
+  amqtt.plugins.logging_amqtt.EventLoggerPlugin: {}
+  amqtt.plugins.authentication.AnonymousAuthPlugin:
+    allow_anonymous: true

@@ -55,3 +55,16 @@ export interface LogEvent {
   kind: LogEventKind;
   level?: StatusLevel;
 }
+
+export interface RangeConfig {
+  min: number;
+  max: number;
+}
+
+export type SimulatorMetric = 'temperature' | 'humidity' | 'soilMoisture';
+
+export interface SimulatorConfig {
+  paused: boolean;
+  ranges: Record<SimulatorMetric, RangeConfig>;
+  timestamp: string;
+}

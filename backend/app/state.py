@@ -1,12 +1,17 @@
-"""In-memory mock zone state. Phase 2: ยังไม่มีฮาร์ดแวร์จริง ตัวเลขยังสุ่มอยู่
-เหมือน Phase 1 แต่ย้ายมาทำงานฝั่ง server แทนฝั่ง browser (ดู src/mock/mockData.ts เดิมของ frontend)
-Phase 3 จะเปลี่ยนจุดนี้ให้รับค่าจาก MQTT แทนการสุ่ม
+"""In-memory cache of the zone's last-known state, kept up to date by `mqtt_bridge.py`.
+
+Phase 3: this module no longer randomizes anything itself — `backend/simulator/run_simulator.py`
+is the source of truth for sensor values, publishing over MQTT. This module just holds the last
+values the bridge has seen so `GET /api/zone1/status` has something to serve, including before
+the bridge's first message arrives (via `_default_state()`) or if the simulator is unreachable.
 """
 
-import random
-from datetime import datetime, timezone
+from __future__ import annotations
 
-PLOT_IDS = ["A1", "A2", "A3", "A4", "B1", "B2", "B3", "B4"]
+from datetime import datetime, timezone
+from typing import Any
+
+from shared.topics import PLOT_IDS
 
 
 def clamp(value: float, lo: float, hi: float) -> float:
@@ -17,7 +22,7 @@ def now_iso() -> str:
     return datetime.now(timezone.utc).isoformat()
 
 
-def _generate_initial_state() -> dict:
+def _default_state() -> dict[str, Any]:
     plots = [
         {"id": pid, "soilMoisture": 44 + ((i * 7) % 30), "valveOpen": i in (1, 5)}
         for i, pid in enumerate(PLOT_IDS)
@@ -25,9 +30,9 @@ def _generate_initial_state() -> dict:
     return {
         "zoneId": "zone1",
         "zoneName": "โซน 1",
-        "temperature": 18 + random.random() * 8,  # 18-26
-        "humidity": 55 + random.random() * 35,  # 55-90
-        "soilMoisture": 40 + random.random() * 35,  # 40-75 (เฉลี่ยเริ่มต้น)
+        "temperature": 22.0,
+        "humidity": 65.0,
+        "soilMoisture": 55.0,
         "timestamp": now_iso(),
         "pump": True,
         "fan": False,
@@ -36,30 +41,35 @@ def _generate_initial_state() -> dict:
     }
 
 
-state: dict = _generate_initial_state()
+state: dict[str, Any] = _default_state()
 
 
-def step() -> None:
-    """เดินสุ่มค่าถัดไปแบบต่อเนื่อง (random walk) — ทำงานทุก 5 วินาทีจาก background task ใน main.py"""
-    fan_on = state["fan"]
-    light_on = state["light"]
-    pump_on = state["pump"]
+def _recompute_soil_average() -> None:
+    plots = state["plots"]
+    state["soilMoisture"] = sum(p["soilMoisture"] for p in plots) / len(plots)
 
-    state["temperature"] = clamp(
-        state["temperature"] + (random.random() - 0.5) * 0.8 + (-0.3 if fan_on else 0) + (0.15 if light_on else 0),
-        14,
-        33,
-    )
-    state["humidity"] = clamp(
-        state["humidity"] + (random.random() - 0.5) * 2.5 + (-1.2 if fan_on else 0.3),
-        40,
-        97,
-    )
 
-    for i, plot in enumerate(state["plots"]):
-        dry_rate = 0.4 + ((i * 13) % 10) / 18
-        delta = 2.4 if (pump_on and plot["valveOpen"]) else -dry_rate
-        plot["soilMoisture"] = clamp(plot["soilMoisture"] + (random.random() - 0.5) * 1.2 + delta, 22, 90)
+def apply_sensor_reading(field: str, value: float, timestamp: str) -> None:
+    """`field` is 'temperature' or 'humidity'."""
+    state[field] = value
+    state["timestamp"] = timestamp
 
-    state["soilMoisture"] = sum(p["soilMoisture"] for p in state["plots"]) / len(state["plots"])
-    state["timestamp"] = now_iso()
+
+def apply_plot_soil(plot_id: str, value: float, timestamp: str) -> None:
+    for plot in state["plots"]:
+        if plot["id"] == plot_id:
+            plot["soilMoisture"] = value
+            break
+    _recompute_soil_average()
+    state["timestamp"] = timestamp
+
+
+def apply_actuator_state(device: str, on: bool) -> None:
+    state[device] = on
+
+
+def apply_valve_state(plot_id: str, open_: bool) -> None:
+    for plot in state["plots"]:
+        if plot["id"] == plot_id:
+            plot["valveOpen"] = open_
+            break
