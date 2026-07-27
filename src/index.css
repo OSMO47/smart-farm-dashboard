@@ -1,0 +1,53 @@
+@import 'tailwindcss';
+@import url('https://fonts.googleapis.com/css2?family=Noto+Sans+Thai:wght@400;500;600;700;800&family=Inter:wght@400;500;600;700;800&display=swap');
+
+@theme {
+  --font-sans: 'Noto Sans Thai', 'Inter', system-ui, sans-serif;
+}
+
+body {
+  margin: 0;
+  background: #f2f7f3;
+  -webkit-font-smoothing: antialiased;
+}
+
+@keyframes pulse-glow {
+  0%,
+  100% {
+    box-shadow: 0 0 0 0 rgba(34, 197, 94, 0.35);
+  }
+  50% {
+    box-shadow: 0 0 0 10px rgba(34, 197, 94, 0);
+  }
+}
+
+@keyframes fan-spin {
+  from {
+    transform: rotate(0deg);
+  }
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+@keyframes drip-pulse {
+  0%,
+  100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.35;
+  }
+}
+
+.animate-pulse-glow {
+  animation: pulse-glow 2.2s ease-in-out infinite;
+}
+
+.animate-fan-spin {
+  animation: fan-spin 1.6s linear infinite;
+}
+
+.animate-drip-pulse {
+  animation: drip-pulse 1.4s ease-in-out infinite;
+}
