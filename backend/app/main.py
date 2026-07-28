@@ -1,4 +1,5 @@
 import asyncio
+import logging
 from contextlib import asynccontextmanager
 from datetime import datetime, timedelta, timezone
 from typing import Literal
@@ -13,20 +14,29 @@ from shared import topics as topic_names
 from . import state as state_module
 from . import supabase_client
 from .mqtt_bridge import MqttBridge
+from .scheduler import WateringScheduler
+
+# uvicorn configures its own uvicorn.* loggers but leaves the root logger at the Python default
+# (WARNING) — without this, mqtt_bridge/scheduler/supabase_client's logger.info() calls are
+# silently dropped and only exceptions (logger.exception, ERROR level) would ever show up.
+logging.basicConfig(level=logging.INFO, format="%(asctime)s %(name)s %(levelname)s %(message)s", force=True)
 
 MAX_HISTORY_HOURS = 24
 
 DeviceName = Literal["pump", "fan", "light"]
 
 bridge = MqttBridge()
+scheduler = WateringScheduler(bridge)
 
 
 @asynccontextmanager
 async def lifespan(_: FastAPI):
     await bridge.connect()
+    scheduler.start()
     try:
         yield
     finally:
+        await scheduler.stop()
         await bridge.disconnect()
 
 
@@ -57,6 +67,12 @@ class RangePatch(BaseModel):
 class SimulatorConfigPatch(BaseModel):
     paused: bool | None = None
     ranges: dict[str, RangePatch] | None = None
+
+
+class SchedulePatch(BaseModel):
+    startTime: str
+    durationMinutes: int
+    enabled: bool
 
 
 @app.get("/api/zone1/status")
@@ -94,6 +110,24 @@ async def get_history(hours: float = 6) -> list[dict]:
         return await supabase_client.fetch_history(since_iso)
     except httpx.HTTPError:
         raise HTTPException(status_code=502, detail="could not load history from Supabase") from None
+
+
+@app.get("/api/zone1/schedules")
+async def get_schedules() -> list[dict]:
+    try:
+        return await supabase_client.fetch_schedules()
+    except httpx.HTTPError:
+        raise HTTPException(status_code=502, detail="could not load watering schedules from Supabase") from None
+
+
+@app.put("/api/zone1/plot/{plot_id}/schedule")
+async def put_schedule(plot_id: str, patch: SchedulePatch) -> dict:
+    if plot_id not in topic_names.PLOT_IDS:
+        raise HTTPException(status_code=404, detail="unknown plot")
+    try:
+        return await supabase_client.upsert_schedule(plot_id, patch.startTime, patch.durationMinutes, patch.enabled)
+    except httpx.HTTPError:
+        raise HTTPException(status_code=502, detail="could not save watering schedule to Supabase") from None
 
 
 @app.get("/api/zone1/simulator/config")

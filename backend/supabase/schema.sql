@@ -16,3 +16,16 @@ create index if not exists sensor_readings_zone_recorded_idx
 alter table sensor_readings enable row level security;
 -- backend uses the secret key, which bypasses RLS -- no policy needed for the app to work;
 -- this just keeps the table closed to the anon/public key.
+
+-- Watering schedules: one row per plot (plot_id is the primary key -- one active
+-- schedule per plot). The backend's scheduler.py checks these every ~20s.
+create table if not exists watering_schedules (
+  plot_id text primary key,
+  start_time time not null,
+  duration_minutes integer not null check (duration_minutes > 0),
+  enabled boolean not null default true,
+  updated_at timestamptz not null default now()
+);
+
+alter table watering_schedules enable row level security;
+-- same as sensor_readings: backend uses the secret key and bypasses RLS.

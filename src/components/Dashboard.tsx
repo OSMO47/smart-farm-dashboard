@@ -1,12 +1,14 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import type { Alert, LogEvent } from '../types/farm';
 import { useZoneStatus } from '../hooks/useZoneStatus';
+import { useSchedules } from '../hooks/useSchedules';
 import { getHumidityStatus, getSoilMoistureStatus, getTemperatureStatus } from '../lib/status';
 import { computeAutoFan, computeAutoLight, computeAutoPump, computeAutoValve } from '../lib/automation';
 import GreenhouseFloorplan from './GreenhouseFloorplan';
 import SensorCard from './SensorCard';
 import DeviceToggle from './DeviceToggle';
 import PlotValveList from './PlotValveList';
+import WateringScheduleList from './WateringScheduleList';
 import CameraPlaceholder from './CameraPlaceholder';
 import AlertBanner from './AlertBanner';
 import EventLog from './EventLog';
@@ -18,6 +20,7 @@ export default function Dashboard() {
   // Phase 2: สถานะจริงมาจาก FastAPI mock backend ผ่าน useZoneStatus (polling ทุก 5 วินาที)
   // แทนการสุ่มในเบราว์เซอร์แบบ Phase 1 (ดู useMockSensorData เดิมเป็นตัวอ้างอิง)
   const { status, history, error, setDevice, toggleValve } = useZoneStatus();
+  const { schedules, saveSchedule } = useSchedules();
 
   // โหมดอัตโนมัติ: preview ของ Phase 5 ด้วยกฎ if-then ธรรมดา (ยังไม่ใช่ AI/ML จริง)
   const [autoMode, setAutoMode] = useState(false);
@@ -297,6 +300,8 @@ export default function Dashboard() {
             </div>
 
             <PlotValveList plots={status.plots} pumpOn={status.pump} onToggleValve={handleToggleValve} disabled={autoMode} />
+
+            <WateringScheduleList plots={status.plots} schedules={schedules} onSave={saveSchedule} />
           </div>
 
           <div className="flex-[1_1_340px] flex flex-col gap-4 min-w-0">

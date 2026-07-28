@@ -68,3 +68,10 @@ export interface SimulatorConfig {
   ranges: Record<SimulatorMetric, RangeConfig>;
   timestamp: string;
 }
+
+export interface PlotSchedule {
+  plotId: string;
+  startTime: string; // "HH:MM", 24-hour, Asia/Bangkok local time
+  durationMinutes: number;
+  enabled: boolean;
+}

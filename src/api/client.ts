@@ -1,4 +1,4 @@
-import type { HistoryPoint, RangeConfig, SimulatorConfig, SimulatorMetric, ZoneStatus } from '../types/farm';
+import type { HistoryPoint, PlotSchedule, RangeConfig, SimulatorConfig, SimulatorMetric, ZoneStatus } from '../types/farm';
 
 const API_BASE_URL: string = import.meta.env.VITE_API_BASE_URL ?? 'http://localhost:8000';
 
@@ -54,5 +54,24 @@ export async function updateSimulatorConfig(patch: SimulatorConfigPatch): Promis
     body: JSON.stringify(patch),
   });
   if (!res.ok) throw new Error(`อัปเดตค่าตั้งค่า simulator ไม่สำเร็จ (${res.status})`);
+  return res.json();
+}
+
+export async function fetchSchedules(): Promise<PlotSchedule[]> {
+  const res = await fetch(`${API_BASE_URL}/api/zone1/schedules`);
+  if (!res.ok) throw new Error(`โหลดตารางรดน้ำไม่สำเร็จ (${res.status})`);
+  return res.json();
+}
+
+export async function updateSchedule(
+  plotId: string,
+  patch: { startTime: string; durationMinutes: number; enabled: boolean },
+): Promise<PlotSchedule> {
+  const res = await fetch(`${API_BASE_URL}/api/zone1/plot/${plotId}/schedule`, {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(patch),
+  });
+  if (!res.ok) throw new Error(`บันทึกตารางรดน้ำแปลง ${plotId} ไม่สำเร็จ (${res.status})`);
   return res.json();
 }

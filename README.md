@@ -112,7 +112,7 @@ farm/system/alert
 backend/
   requirements.txt
   .env                      SUPABASE_URL, SUPABASE_SECRET_KEY (ไม่ commit — ดู .env.example)
-  supabase/schema.sql        SQL สร้างตาราง sensor_readings — รันครั้งเดียวใน Supabase SQL Editor
+  supabase/schema.sql        SQL สร้างตาราง sensor_readings + watering_schedules — รันครั้งเดียวใน Supabase SQL Editor
   shared/topics.py           topic constants + payload helpers ใช้ร่วมกันทั้ง broker/simulator/app
   broker/
     broker_config.yaml       config ของ amqtt broker (listener 0.0.0.0:1883, allow-anonymous)
@@ -125,19 +125,26 @@ backend/
     state.py                 cache สถานะล่าสุดในหน่วยความจำ (ไม่สุ่มเองแล้ว) + setter ให้ bridge เรียก
     mqtt_bridge.py            MQTT client ฝั่ง backend + publish_and_await() สำหรับ endpoint แบบ sync
                                + persist ค่าเซนเซอร์ลง Supabase ทุก tick (ดู sim/status handler)
-    supabase_client.py        httpx wrapper เรียก Supabase PostgREST: insert_reading(), fetch_history()
+    supabase_client.py        httpx wrapper เรียก Supabase PostgREST: insert_reading(), fetch_history(),
+                               fetch_schedules(), upsert_schedule()
+    scheduler.py               WateringScheduler — เช็คตารางรดน้ำทุก ~20 วิ เทียบเวลา Asia/Bangkok
+                               สั่งเปิด/ปิดวาล์วเฉพาะตอน "ขอบ" ของช่วงเวลาเปลี่ยน (ไม่ทับคำสั่งมือ)
     main.py                   routes: GET /api/zone1/status, POST .../actuator/{device}, POST .../plot/{id}/valve,
-                               GET/POST /api/zone1/simulator/config, GET /api/zone1/history
+                               GET/POST /api/zone1/simulator/config, GET /api/zone1/history,
+                               GET /api/zone1/schedules, PUT /api/zone1/plot/{id}/schedule
 
 src/
-  types/farm.ts             ชนิดข้อมูล SensorReading, DeviceState, PlotStatus, ZoneStatus, SimulatorConfig, RangeConfig
+  types/farm.ts             ชนิดข้อมูล SensorReading, DeviceState, PlotStatus, ZoneStatus, SimulatorConfig,
+                             RangeConfig, PlotSchedule
   api/client.ts               fetch wrapper เรียก backend (getZoneStatus, setActuator, setValve,
-                               fetchSimulatorConfig, updateSimulatorConfig, fetchHistory)
+                               fetchSimulatorConfig, updateSimulatorConfig, fetchHistory,
+                               fetchSchedules, updateSchedule)
   mock/mockData.ts          (Phase 1 เดิม) ฟังก์ชันสุ่มค่าเซนเซอร์ฝั่ง browser — เก็บไว้อ้างอิง ไม่ได้ใช้แล้ว
   hooks/useMockSensorData.ts  (Phase 1 เดิม) hook สุ่มข้อมูลในเบราว์เซอร์ — เก็บไว้อ้างอิง ไม่ได้ใช้แล้ว
   hooks/useZoneStatus.ts   hook ที่ใช้จริงตอนนี้: seed ประวัติจาก Supabase ครั้งแรก + polling backend ทุก 5 วินาที
                              + สั่งงานอุปกรณ์/วาล์วผ่าน API
   hooks/useSimulatorConfig.ts หน้า Simulator Control ใช้: polling config ทุก 5 วิ + setPaused/setRange
+  hooks/useSchedules.ts     polling ตารางรดน้ำทุก 10 วิ + saveSchedule ต่อแปลง
   lib/status.ts             เกณฑ์ปลอดภัย/เฝ้าระวัง/อันตราย ของอุณหภูมิ ความชื้นอากาศ ความชื้นดิน
   lib/automation.ts         กฎอัตโนมัติแบบ rule-based (if-then) preview ของ Phase 5 — ยังไม่ใช่ AI/ML
   components/
@@ -146,6 +153,7 @@ src/
     SensorCard.tsx          การ์ดแสดงค่าอุณหภูมิ/ความชื้นอากาศ/ความชื้นดิน พร้อมแถบช่วง ป้ายเตือน และ sparkline แนวโน้ม
     DeviceToggle.tsx        สวิตช์เปิด-ปิดอุปกรณ์หลัก (ปั๊ม/พัดลม/ไฟ) — ปิดใช้งานเมื่ออยู่โหมดอัตโนมัติ
     PlotValveList.tsx       รายการวาล์วน้ำหยดรายแปลง เปิด-ปิดทีละแปลงได้
+    WateringScheduleList.tsx ตั้งเวลาเปิด-ปิดวาล์วอัตโนมัติรายแปลง (เวลาเริ่ม + ระยะเวลานาที + เปิด/ปิดใช้งาน)
     AlertBanner.tsx         แบนเนอร์แจ้งเตือนเมื่อค่าเซนเซอร์เกินช่วงปลอดภัย
     EventLog.tsx            ประวัติการเปิด/ปิดอุปกรณ์และการแจ้งเตือนล่าสุด (Activity Log)
     Sparkline.tsx           กราฟเส้นเล็กแสดงแนวโน้มค่าล่าสุด — ตอนนี้ seed มาจาก Supabase ตอนโหลดหน้า (Phase 4)
@@ -201,6 +209,16 @@ src/
 - `mqtt_bridge.py` เกาะกับ heartbeat `farm/zone1/sim/status` ที่มีอยู่แล้ว (ส่งทุก tick หลัง publish ค่าเซนเซอร์) เป็นสัญญาณ "มีค่าที่บันทึกได้แล้ว" — ไม่ต้องเพิ่ม topic หรือ timer ใหม่ ข้ามการบันทึกตอน pause และตอน snapshot แรกที่เพิ่งต่อ broker (`lastTick` เป็น `null`)
 - เพิ่ม `GET /api/zone1/history?hours=6` (สูงสุด 24 ชม.) คืนค่าเป็น array รูปแบบเดียวกับ `HistoryPoint` ฝั่ง frontend ไม่ต้องแปลงข้อมูลเพิ่ม
 - `useZoneStatus.ts` เรียก `fetchHistory()` ครั้งเดียวตอนโหลดหน้า มาเติม sparkline ก่อนเริ่ม polling สด — ถ้าดึงไม่ได้ (ยังไม่ตั้ง Supabase หรือเน็ตมีปัญหา) จะเงียบแล้วเริ่มจากค่าว่างเหมือน Phase 3 เดิม ไม่กระทบสถานะ "เชื่อมต่อ backend ไม่ได้" ที่ใช้แสดงหน้า error เต็มจอ
+
+## ฟีเจอร์เสริม: ตารางรดน้ำอัตโนมัติ (Watering Schedule)
+
+ฟีเจอร์นอกโรดแมป 6 phase ต่อยอดจาก Supabase ที่ตั้งไว้ใน Phase 4 — ตั้งเวลาเปิด-ปิดวาล์วน้ำหยดล่วงหน้าได้ทีละแปลง (เวลาเริ่ม + ระยะเวลาเป็นนาที) แล้ว**ทำงานเองที่ backend แม้ไม่มีใครเปิดหน้าเว็บอยู่เลย** — ต่างจากโหมดอัตโนมัติแบบ rule-based (`lib/automation.ts`) ที่ต้องเปิดแท็บเบราว์เซอร์ทิ้งไว้ถึงจะทำงาน
+
+- ตาราง `watering_schedules` ใน Supabase เก็บ 1 แถวต่อ 1 แปลง (`plot_id` เป็น primary key)
+- `backend/app/scheduler.py` เช็คทุก ~20 วินาที เทียบเวลาปัจจุบัน (โซนเวลา Asia/Bangkok) กับช่วง `[เวลาเริ่ม, เวลาเริ่ม+ระยะเวลา)`
+- สั่งเปิด/ปิดวาล์ว **เฉพาะตอนขอบเขตเปลี่ยน** (เข้า/ออกจากช่วงเวลา) เท่านั้น ไม่สั่งซ้ำทุกครั้งที่เช็ค — เพราะงั้นถ้ากดปิดวาล์วเองก่อนครบเวลา (เช่น เห็นดินชื้นพอแล้ว) ระบบจะ**ไม่เปิดกลับให้ทันที** จะรอไปสั่งเปิดใหม่ตอนถึงรอบถัดไปเท่านั้น
+- ใช้ช่องทางคำสั่งเดียวกับปุ่มเปิด/ปิดวาล์วมือ (`farm/zone1/plot/{id}/valve/cmd`) ไม่มี MQTT topic ใหม่
+- แก้ตารางได้ที่การ์ด "ตารางรดน้ำอัตโนมัติ" ใต้รายการวาล์วในหน้าแดชบอร์ด
 
 ## จุดที่ต้องแก้ตอน Phase 5
 
